@@ -1,9 +1,11 @@
-import time
 import csv
 import logging
+import os
+import time
+
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -37,33 +39,52 @@ def parse(html, offset):
         title_tag = item.select_one("div.listTitle a span.listTitleColor1")
         title = title_tag.get_text(strip=True) if title_tag else ""
         link_tag = item.select_one("div.listTitle a")
-        link = link_tag['href'] if link_tag else ""
+        link = link_tag["href"] if link_tag else ""
         # Author and date
         author_tag = item.select_one("div.listTitle span.listTitleColor2")
         author_and_date = author_tag.get_text(strip=True) if author_tag else ""
         # Details from the info line
         info_tag = item.select_one("div.listInfo p.listIcons")
         info = info_tag.get_text(separator=" ", strip=True) if info_tag else ""
-        results.append({
-            "title": title,
-            "link": link,
-            "author_and_date": author_and_date,
-            "info": info
-        })
+        results.append(
+            {
+                "title": title,
+                "link": link,
+                "author_and_date": author_and_date,
+                "info": info,
+            }
+        )
     return results
 
 
+CHECKPOINT_FILE = "scrape_checkpoint.txt"
+
+
+def save_checkpoint(offset):
+    with open(CHECKPOINT_FILE, "w") as f:
+        f.write(str(offset))
+
+
+def load_checkpoint():
+    if os.path.exists(CHECKPOINT_FILE):
+        with open(CHECKPOINT_FILE) as f:
+            return int(f.read().strip())
+    return 0
+
+
 def main():
-    offset = 0
+    offset = load_checkpoint()
     fieldnames = ["title", "link", "author_and_date", "info"]
 
     options = Options()
     options.headless = True
     driver = webdriver.Chrome(options=options)
 
-    with open("copperknob.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
+    # Only write header if starting from zero
+    if offset == 0:
+        with open("copperknob.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
 
     try:
         while True:
@@ -76,13 +97,14 @@ def main():
             if not results:
                 break
 
-            # Append results to CSV **after each page**
+            # Append results to CSV
             with open("copperknob.csv", "a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writerows(results)
 
             logger.info(f"Wrote {len(results)} records from offset {offset}.")
             offset += len(results)
+            save_checkpoint(offset)
     finally:
         driver.quit()
 
